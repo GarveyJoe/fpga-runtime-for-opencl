@@ -698,8 +698,12 @@ int acl_update_ooo_queue(cl_command_queue command_queue) {
     if (command_queue->submits_commands &&
         event->execution_status == CL_QUEUED) {
       if (event->depend_on.empty()) {
-        command_queue->num_commands_submitted++;
         success = acl_submit_command(event);
+        if (success) {
+          // num_commands_submitted isn't used for ooo queues today
+          // but keep it up-to-date in case someone wants to use it in the future
+          command_queue->num_commands_submitted++;
+        }
       } else {
         // This is allowed to fail, so no need to mark success as false
         // dependent events that fail to be FKRd will still be picked up when
@@ -740,11 +744,17 @@ int acl_update_ooo_queue(cl_command_queue command_queue) {
         if ((dependent->command_queue->properties &
              CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE) &&
             dependent->cmd.type != CL_COMMAND_USER) {
-          int local_updates = acl_submit_command(dependent);
-          dependent->command_queue->num_commands_submitted +=
-              local_updates; // dependent might be on another queue
-          num_updates += local_updates;
+          // Keep trying to submit it until successful because if we don't
+          // submit it this event will be dropped as it has no more dependences
+          while(!acl_submit_command(dependent)) {}
+          // dependent might be on another queue
+          dependent->command_queue->num_commands_submitted++;
+          num_updates++;
         }
+      } else {
+        // It's possible that this event was the only one preventing FKR,
+        // so try that again
+        acl_try_FastKernelRelaunch_ooo_queue_event_dependents(event);
       }
     }
 

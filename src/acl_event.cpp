@@ -1086,7 +1086,9 @@ int acl_notify_dependent_events(cl_event event) {
         dependent->depend_on.empty() &&
         dependent->cmd.type != CL_COMMAND_USER) {
       dependent->command_queue->num_commands_submitted++;
-      acl_submit_command(dependent);
+      // Submit until successful.  Otherwise we'll lose this event because it
+      // has no other dependences
+      while (!acl_submit_command(dependent)) {}
     }
   }
 
